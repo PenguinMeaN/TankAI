@@ -1,14 +1,14 @@
 import sys
 
-# Проверяем, передал ли лаунчер логин пользователя
-if len(sys.argv) > 1:
-    username = sys.argv[1]
-else:
-    username = "Guest"
+# Получаем логин от лаунчера
+user = sys.argv[1] if len(sys.argv) > 1 else "Unknown"
 
 print("========================================")
-print(f"Welcome, {username}!")
+print(f"  PENGUIN AI | COUNTER-STRIKE PROJECT")
 print("========================================")
-print("Tactical Core is active and running.")
-print("Waiting for game process...")
-input("\nPress Enter to close this core window...")
+print(f"Status: Authenticated as {user}")
+print("Searching for CS process...")
+
+# Здесь в будущем будет твой код для CS
+import time
+time.sleep(5)
