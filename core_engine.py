@@ -1,9 +1,14 @@
-# --- ТВОИ НАСТРОЙКИ ---
-GITHUB_USER = "PenguinMeaN"
-REPO_NAME = "TankAI"
+import sys
 
-VERSION_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{REPO_NAME}/main/version.json"
-USER_DATA_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{REPO_NAME}/main/users.json"
-CORE_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{REPO_NAME}/main/core_engine.py"
+# Проверяем, передал ли лаунчер логин пользователя
+if len(sys.argv) > 1:
+    username = sys.argv[1]
+else:
+    username = "Guest"
 
-CURRENT_VERSION = "1.0.2"
+print("========================================")
+print(f"Welcome, {username}!")
+print("========================================")
+print("Tactical Core is active and running.")
+print("Waiting for game process...")
+input("\nPress Enter to close this core window...")
