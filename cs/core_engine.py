@@ -2,64 +2,63 @@ import pymem
 import pymem.process
 import requests
 import time
-import ctypes
 
-# Свежие оффсеты берем из проверенного источника (a2x)
-OFFSETS_URL = "https://raw.githubusercontent.com/a2x/cs2-dumper/main/output/offsets.json"
-CLIENT_URL = "https://raw.githubusercontent.com/a2x/cs2-dumper/main/output/client_dll.json"
+# --- АВТО-ОФФСЕТЫ ---
+OFFSETS = requests.get("https://raw.githubusercontent.com/a2x/cs2-dumper/main/output/offsets.json").json()
+CLIENT_DLL = requests.get("https://raw.githubusercontent.com/a2x/cs2-dumper/main/output/client_dll.json").json()
 
-def start_glow():
+# Адреса
+dwEntityList = OFFSETS['client_dll']['dwEntityList']
+dwLocalPlayerPawn = OFFSETS['client_dll']['dwLocalPlayerPawn']
+# Поля (Offsets)
+m_iTeamNum = CLIENT_DLL['client.dll']['classes']['C_BaseEntity']['fields']['m_iTeamNum']
+m_iHealth = CLIENT_DLL['client.dll']['classes']['C_BaseEntity']['fields']['m_iHealth']
+m_entitySpottedState = CLIENT_DLL['client.dll']['classes']['C_CSPlayerPawnBase']['fields']['m_entitySpottedState']
+m_bSpotted = 0x8 # Обычно это смещение внутри spottedState
+
+def start_cheat():
     try:
-        # Подключаемся к CS2
         pm = pymem.Pymem("cs2.exe")
         client = pymem.process.module_from_name(pm.process_handle, "client.dll").lpBaseOfDll
-        
-        # Тянем актуальные адреса
-        offsets = requests.get(OFFSETS_URL).json()
-        client_data = requests.get(CLIENT_URL).json()
-
-        dwEntityList = offsets['client_dll']['dwEntityList']
-        dwLocalPlayerPawn = offsets['client_dll']['dwLocalPlayerPawn']
-        m_iTeamNum = client_data['client.dll']['classes']['C_BaseEntity']['fields']['m_iTeamNum']
-        m_iHealth = client_data['client.dll']['classes']['C_BaseEntity']['fields']['m_iHealth']
-
-        print("[PenguinAI] Engine Connected. Glow is Warming Up...")
+        print("[PenguinAI] Engine Connected. Radar Hack: ON")
 
         while True:
-            # Находим тебя
+            # Находим себя
             local_player = pm.read_longlong(client + dwLocalPlayerPawn)
             if not local_player: continue
             my_team = pm.read_int(local_player + m_iTeamNum)
 
-            # Ищем врагов
+            # Список сущностей
             entity_list = pm.read_longlong(client + dwEntityList)
-            if not entity_list: continue
-
+            
             for i in range(1, 64):
                 try:
-                    # Магия поиска сущностей в CS2
-                    list_entry = pm.read_longlong(entity_list + (8 * (i & 0x7FFF) >> 9) + 16)
-                    if not list_entry: continue
+                    # Поиск Pawn игрока
+                    entry_ptr = pm.read_longlong(entity_list + (8 * (i & 0x7FFF) >> 9) + 16)
+                    controller_ptr = pm.read_longlong(entry_ptr + 120 * (i & 0x1FF))
                     
-                    pawn = pm.read_longlong(list_entry + 120 * (i & 0x1FF))
-                    if not pawn: continue
+                    # Получаем Pawn через Handle
+                    pawn_handle = pm.read_long(controller_ptr + 0x7FC) # m_hPawn
+                    pawn_ptr = pm.read_longlong(entry_ptr + 120 * (pawn_handle & 0x1FF))
+                    
+                    if not pawn_ptr: continue
 
-                    # Проверяем: жив ли и не в нашей ли команде
-                    health = pm.read_int(pawn + m_iHealth)
-                    team = pm.read_int(pawn + m_iTeamNum)
+                    # Данные врага
+                    health = pm.read_int(pawn_ptr + m_iHealth)
+                    team = pm.read_int(pawn_ptr + m_iTeamNum)
 
                     if health > 0 and team != my_team:
-                        # --- ТУТ БУДЕТ ОТРИСОВКА (v2.1) ---
-                        # В CS2 Glow работает через SceneSystem или перепись материалов.
-                        # На этом этапе мы убеждаемся, что база видит врагов.
-                        pass
+                        # --- RADAR HACK ---
+                        # Заставляем игру думать, что мы видим врага
+                        pm.write_bool(pawn_ptr + m_entitySpottedState + m_bSpotted, True)
+                        
                 except: continue
             
-            time.sleep(0.01)
+            time.sleep(0.5) # Для радара большая частота не нужна
 
     except Exception as e:
-        print(f"[SYSTEM] Waiting for CS2... ({e})")
-        time.sleep(3)
+        print(f"Waiting for CS2... {e}")
+        time.sleep(2)
 
 if __name__ == "__main__":
     start_glow()
