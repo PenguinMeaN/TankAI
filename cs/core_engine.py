@@ -1,78 +1,53 @@
-import pyMeow as pmw
-import time
-import winsound # Для звукового теста
+import os
 import sys
+import time
 
-class PenguinTestOverlay:
+# Сразу пишем в файл, что скрипт хотя бы СТАРТОВАЛ
+with open("debug_log.txt", "w") as f:
+    f.write(f"[{time.ctime()}] Script started...\n")
+
+try:
+    import pyMeow as pmw
+    import winsound
+    with open("debug_log.txt", "a") as f: f.write("Libraries imported successfully.\n")
+except Exception as e:
+    with open("debug_log.txt", "a") as f: f.write(f"IMPORT ERROR: {e}\n")
+    sys.exit()
+
+class DiagnosticOverlay:
     def __init__(self):
         try:
-            # Пытаемся прицепиться к рабочему столу для теста, если игры нет
-            # Если игра есть, он прицепится к ней
-            self.overlay = pmw.overlay_init(target="Counter-Strike 2", fps=144)
-            self.width = pmw.get_window_width("Counter-Strike 2")
-            self.height = pmw.get_window_height("Counter-Strike 2")
-            
-            self.menu_open = True
-            self.wh_status = False
-            self.aim_status = False
-            
-            print(f"[PenguinAI: Debug] Overlay created: {self.width}x{self.height}")
-            print("[SYSTEM] If you see a black square and it vanishes - Windows blocks transparency.")
-        except:
-            # Если CS2 не найдена, создаем оверлей на весь экран (тестовый режим)
+            # Пытаемся создать оверлей БЕЗ привязки к игре (на весь экран)
             self.overlay = pmw.overlay_init() 
             self.width = 1920
             self.height = 1080
-            print("[PenguinAI: Debug] CS2 not found. Running in FULLSCREEN TEST MODE.")
-
-    def draw_ui(self):
-        if not self.menu_open: return
-
-        # Наше овальное матовое меню
-        # Фон
-        pmw.draw_rectangle(50, 50, 250, 300, pmw.get_color("#0D0E11"))
-        # Неоновая рамка
-        pmw.draw_rectangle_lines(50, 50, 250, 300, pmw.get_color("#00DF64"), 2)
-        
-        # Заголовок
-        pmw.draw_text("PenguinAI: HUB", 75, 75, 20, pmw.get_color("#00DF64"))
-        pmw.draw_line(65, 110, 285, 110, pmw.get_color("#22262E"), 1)
-
-        # Кнопки-индикаторы
-        self.draw_indicator("Visuals WH", 140, self.wh_status)
-        self.draw_indicator("Aimbot Root", 180, self.aim_status)
-        self.draw_indicator("Trigger Bot", 220, False)
-        
-        pmw.draw_text("Status: Running...", 75, 280, 12, pmw.get_color("#444"))
-        pmw.draw_text("Press [INS] to Toggle", 75, 310, 10, pmw.get_color("#00DF64"))
-
-    def draw_indicator(self, text, y, state):
-        color = "#00DF64" if state else "#333"
-        pmw.draw_circle(75, y + 10, 6, pmw.get_color(color))
-        pmw.draw_text(text, 100, y, 15, pmw.get_color("white"))
+            self.menu_open = True
+            
+            with open("debug_log.txt", "a") as f: f.write("Overlay initialized successfully.\n")
+            # Издаем звук при старте
+            winsound.Beep(1000, 500)
+        except Exception as e:
+            with open("debug_log.txt", "a") as f: f.write(f"OVERLAY ERROR: {e}\n")
 
     def run(self):
-        print("[!] Press INSERT to test Sound and Menu visibility.")
+        with open("debug_log.txt", "a") as f: f.write("Entering main loop...\n")
         
-        while pmw.overlay_loop():
-            # Тест кнопки INSERT (0x2D)
-            if pmw.key_pressed(0x2D):
-                self.menu_open = not self.menu_open
-                # ПИЩИМ ПРИ НАЖАТИИ (Частота 800Гц, длительность 100мс)
-                winsound.Beep(800, 100) 
-                print(f"[DEBUG] INSERT Pressed. Menu Visible: {self.menu_open}")
-                time.sleep(0.3)
-
-            pmw.begin_drawing()
-            
-            # РИСУЕМ ТЕСТОВЫЙ КВАДРАТ В ЦЕНТРЕ ЭКРАНА
-            pmw.draw_rectangle_lines(self.width//2 - 50, self.height//2 - 50, 100, 100, pmw.get_color("#00DF64"), 2)
-            pmw.draw_text("PENGUIN OVERLAY TEST", self.width//2 - 70, self.height//2 + 60, 12, pmw.get_color("white"))
-            
-            self.draw_ui()
-            
-            pmw.end_drawing()
+        # Цикл на 10 секунд, чтобы мы успели что-то увидеть
+        start_time = time.time()
+        while time.time() - start_time < 10:
+            if pmw.overlay_loop():
+                pmw.begin_drawing()
+                
+                # Рисуем огромный зеленый текст в центре
+                pmw.draw_text("PENGUIN AI: DEBUG MODE", 500, 500, 40, pmw.get_color("#00DF64"))
+                pmw.draw_rectangle_lines(100, 100, 500, 500, pmw.get_color("white"), 5)
+                
+                pmw.end_drawing()
+            else:
+                break
+        
+        with open("debug_log.txt", "a") as f: f.write("Loop finished or interrupted.\n")
 
 if __name__ == "__main__":
-    test = PenguinTestOverlay()
-    test.run()
+    diag = DiagnosticOverlay()
+    diag.run()
