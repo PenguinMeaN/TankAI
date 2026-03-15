@@ -1,31 +1,59 @@
-import pymem, requests, ctypes, time
+import sys
+import pymem
+from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QPainter, QPen, QColor
 
-# GDI инициализация
-user32 = ctypes.windll.user32
-gdi32 = ctypes.windll.gdi32
-hdc = user32.GetDC(0)
-RED_PEN = gdi32.CreatePen(0, 3, 0x0000FF) # Красный для теста
-GREEN_PEN = gdi32.CreatePen(0, 2, 0x00DF64) # Зеленый наш
-
-def draw_test_cross(hdc, sw, sh):
-    # Рисует крест в центре экрана для проверки
-    gdi32.SelectObject(hdc, RED_PEN)
-    gdi32.MoveToEx(hdc, sw//2 - 20, sh//2, None); gdi32.LineTo(hdc, sw//2 + 20, sh//2)
-    gdi32.MoveToEx(hdc, sw//2, sh//2 - 20, None); gdi32.LineTo(hdc, sw//2, sh//2 + 20)
-
-print("[DEBUG] WH Started. Looking for CS2...")
-
-try:
-    pm = pymem.Pymem("cs2.exe")
-    sw = user32.GetSystemMetrics(0); sh = user32.GetSystemMetrics(1)
-    print(f"[DEBUG] Connected! Resolution: {sw}x{sh}")
-    
-    while True:
-        # 1. Постоянно рисуем тестовый крест, чтобы видеть, что скрипт ЖИВ
-        draw_test_cross(hdc, sw, sh)
+class ESPOverlay(QWidget):
+    def __init__(self):
+        super().__init__()
         
-        # 2. Тут будет логика WH (пока просто спим, чтобы не вешать систему)
-        time.sleep(0.01)
-except Exception as e:
-    print(f"[ERROR] {e}")
-    time.sleep(5)
+        # --- МАГИЯ ОВЕРЛЕЯ ---
+        # Делаем окно прозрачным, без рамок, поверх всех окон и чтобы мышка проходила СКВОЗЬ него
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint | 
+            Qt.WindowType.WindowStaysOnTopHint | 
+            Qt.WindowType.Tool | 
+            Qt.WindowType.WindowTransparentForInput
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        
+        # Растягиваем наше невидимое окно на весь экран
+        screen = QApplication.primaryScreen().geometry()
+        self.setGeometry(screen)
+        
+        # Подключаемся к игре (пока просто проверяем, запущена ли она)
+        try:
+            self.pm = pymem.Pymem("cs2.exe")
+            print("[PenguinAI] Hooked to CS2!")
+        except:
+            print("[PenguinAI] Waiting for CS2...")
+
+        # Таймер обновления экрана (60 FPS = 16 мс)
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update) # Эта команда заставляет окно перерисовываться
+        self.timer.start(16)
+
+    def paintEvent(self, event):
+        # Эта функция вызывается 60 раз в секунду и рисует нашу графику
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing) # Сглаживание
+        
+        # Берем "кисть" красного цвета, толщиной 2 пикселя
+        pen = QPen(QColor(255, 0, 0), 2)
+        painter.setPen(pen)
+        
+        # Узнаем центр экрана
+        w = self.width()
+        h = self.height()
+        cx, cy = w // 2, h // 2
+        
+        # Рисуем крест (Линия горизонтальная, линия вертикальная)
+        painter.drawLine(cx - 15, cy, cx + 15, cy)
+        painter.drawLine(cx, cy - 15, cx, cy + 15)
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    overlay = ESPOverlay()
+    overlay.show()
+    sys.exit(app.exec())
