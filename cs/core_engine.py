@@ -1,64 +1,77 @@
+import pyMeow as pmw
+import requests
 import pymem
 import pymem.process
-import requests
-import time
 
-# --- АВТО-ОФФСЕТЫ ---
-OFFSETS = requests.get("https://raw.githubusercontent.com/a2x/cs2-dumper/main/output/offsets.json").json()
-CLIENT_DLL = requests.get("https://raw.githubusercontent.com/a2x/cs2-dumper/main/output/client_dll.json").json()
+# --- АВТО-ОФФСЕТЫ (Прямо из дампера) ---
+offsets = requests.get("https://raw.githubusercontent.com/a2x/cs2-dumper/main/output/offsets.json").json()
+client_dll = requests.get("https://raw.githubusercontent.com/a2x/cs2-dumper/main/output/client_dll.json").json()
 
-# Адреса
-dwEntityList = OFFSETS['client_dll']['dwEntityList']
-dwLocalPlayerPawn = OFFSETS['client_dll']['dwLocalPlayerPawn']
-# Поля (Offsets)
-m_iTeamNum = CLIENT_DLL['client.dll']['classes']['C_BaseEntity']['fields']['m_iTeamNum']
-m_iHealth = CLIENT_DLL['client.dll']['classes']['C_BaseEntity']['fields']['m_iHealth']
-m_entitySpottedState = CLIENT_DLL['client.dll']['classes']['C_CSPlayerPawnBase']['fields']['m_entitySpottedState']
-m_bSpotted = 0x8 # Обычно это смещение внутри spottedState
+dwEntityList = offsets['client_dll']['dwEntityList']
+dwLocalPlayerPawn = offsets['client_dll']['dwLocalPlayerPawn']
+dwViewMatrix = offsets['client_dll']['dwViewMatrix']
 
-def start_cheat():
-    try:
-        pm = pymem.Pymem("cs2.exe")
-        client = pymem.process.module_from_name(pm.process_handle, "client.dll").lpBaseOfDll
-        print("[PenguinAI] Engine Connected. Radar Hack: ON")
+m_iTeamNum = client_dll['client.dll']['classes']['C_BaseEntity']['fields']['m_iTeamNum']
+m_iHealth = client_dll['client.dll']['classes']['C_BaseEntity']['fields']['m_iHealth']
+m_vOldOrigin = client_dll['client.dll']['classes']['C_BasePlayerPawn']['fields']['m_vOldOrigin']
 
-        while True:
-            # Находим себя
-            local_player = pm.read_longlong(client + dwLocalPlayerPawn)
-            if not local_player: continue
-            my_team = pm.read_int(local_player + m_iTeamNum)
+class PenguinESP:
+    def __init__(self):
+        try:
+            self.pm = pymem.Pymem("cs2.exe")
+            self.client = pymem.process.module_from_name(self.pm.process_handle, "client.dll").lpBaseOfDll
+            # Инициализация оверлея pyMeow
+            pmw.overlay_init("Counter-Strike 2", fps=144)
+            print("[PenguinAI] WH Started Successfully!")
+        except Exception as e:
+            print(f"[ERROR] Run CS2 first! {e}")
+            sys.exit()
 
-            # Список сущностей
-            entity_list = pm.read_longlong(client + dwEntityList)
+    def run(self):
+        while pmw.overlay_loop():
+            pmw.begin_drawing()
             
-            for i in range(1, 64):
+            # Читаем матрицу вида (для World-to-Screen)
+            view_matrix = self.pm.read_bytes(self.client + dwViewMatrix, 64)
+            matrix = [sum(struct.unpack('f' * 4, view_matrix[i*16:i*16+16])) for i in range(4)] # Упрощенно
+            # В pyMeow есть встроенная функция для матрицы, используем её
+            v_matrix = []
+            for i in range(16):
+                v_matrix.append(self.pm.read_float(self.client + dwViewMatrix + (i * 4)))
+
+            local_player = self.pm.read_longlong(self.client + dwLocalPlayerPawn)
+            local_team = self.pm.read_int(local_player + m_iTeamNum)
+
+            entity_list = self.pm.read_longlong(self.client + dwEntityList)
+            
+            for i in range(1, 64): # Проход по игрокам
                 try:
-                    # Поиск Pawn игрока
-                    entry_ptr = pm.read_longlong(entity_list + (8 * (i & 0x7FFF) >> 9) + 16)
-                    controller_ptr = pm.read_longlong(entry_ptr + 120 * (i & 0x1FF))
+                    list_entry = self.pm.read_longlong(entity_list + (8 * (i & 0x7FFF) >> 9) + 16)
+                    pawn_handle = self.pm.read_long(list_entry + 120 * (i & 0x1FF))
                     
-                    # Получаем Pawn через Handle
-                    pawn_handle = pm.read_long(controller_ptr + 0x7FC) # m_hPawn
-                    pawn_ptr = pm.read_longlong(entry_ptr + 120 * (pawn_handle & 0x1FF))
-                    
-                    if not pawn_ptr: continue
+                    pawn_ptr = self.pm.read_longlong(list_entry + 120 * (pawn_handle & 0x1FF))
+                    if not pawn_ptr or pawn_ptr == local_player: continue
 
-                    # Данные врага
-                    health = pm.read_int(pawn_ptr + m_iHealth)
-                    team = pm.read_int(pawn_ptr + m_iTeamNum)
+                    health = self.pm.read_int(pawn_ptr + m_iHealth)
+                    team = self.pm.read_int(pawn_ptr + m_iTeamNum)
 
-                    if health > 0 and team != my_team:
-                        # --- RADAR HACK ---
-                        # Заставляем игру думать, что мы видим врага
-                        pm.write_bool(pawn_ptr + m_entitySpottedState + m_bSpotted, True)
+                    if health > 0 and team != local_team:
+                        # Получаем 3D позицию врага
+                        pos = self.pm.read_vec3(pawn_ptr + m_vOldOrigin)
                         
-                except: continue
-            
-            time.sleep(0.5) # Для радара большая частота не нужна
+                        # Проекция 3D -> 2D (World to Screen)
+                        screen_pos = pmw.world_to_screen(v_matrix, pos, 1) # 1 - это разрешение
+                        
+                        if screen_pos:
+                            # Рисуем бокс вокруг врага
+                            # Для простоты рисуем круг/точку, пока не настроим размеры бокса
+                            pmw.draw_circle(screen_pos['x'], screen_pos['y'], 5, pmw.get_color("green"))
+                            pmw.draw_text(f"HP: {health}", screen_pos['x'], screen_pos['y'] - 15, 12, pmw.get_color("white"))
+                except:
+                    continue
 
-    except Exception as e:
-        print(f"Waiting for CS2... {e}")
-        time.sleep(2)
+            pmw.end_drawing()
 
 if __name__ == "__main__":
-    start_glow()
+    import struct, sys
+     PenguinESP().run()
