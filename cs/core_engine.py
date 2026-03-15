@@ -8,7 +8,7 @@ from PyQt6.QtGui import QPainter, QPen, QColor, QFont
 
 user32 = ctypes.windll.user32
 
-# Константы клавиш Windows (WinAPI)
+# Константы клавиш
 VK_INSERT = 0x2D
 VK_F12 = 0x7B
 VK_UP = 0x26
@@ -33,23 +33,22 @@ try:
 except Exception as e:
     print(f"[ERROR] Failed to load offsets: {e}")
 
-def world_to_screen(matrix, pos, width, height):
-    # Математика проекции 3D в 2D
-    w = matrix[12] * pos.x + matrix[13] * pos.y + matrix[14] * pos.z + matrix[15]
+def world_to_screen(matrix, px, py, pz, width, height):
+    # Математика проекции 3D в 2D (Исправленная)
+    w = matrix[12] * px + matrix[13] * py + matrix[14] * pz + matrix[15]
     if w < 0.01: return None
     
-    x = (matrix[0] * pos.x + matrix[1] * pos.y + matrix[2] * pos.z + matrix[3]) / w
-    y = (matrix[4] * pos.x + matrix[5] * pos.y + matrix[6] * pos.z + matrix[7]) / w
+    x = (matrix[0] * px + matrix[1] * py + matrix[2] * pz + matrix[3]) / w
+    y = (matrix[4] * px + matrix[5] * py + matrix[6] * pz + matrix[7]) / w
     
-    px = (width / 2) + (x * width / 2)
-    py = (height / 2) - (y * height / 2)
-    return int(px), int(py)
+    sx = (width / 2) + (x * width / 2)
+    sy = (height / 2) - (y * height / 2)
+    return int(sx), int(sy)
 
 class ESPOverlay(QWidget):
     def __init__(self):
         super().__init__()
         
-        # --- НАСТРОЙКИ ОВЕРЛЕЯ ---
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | 
             Qt.WindowType.WindowStaysOnTopHint | 
@@ -63,7 +62,6 @@ class ESPOverlay(QWidget):
         self.sh = screen_rect.height()
         self.setGeometry(screen_rect)
 
-        # --- ПЕРЕМЕННЫЕ ЧИТА ---
         self.show_menu = False
         self.features = {
             "Crosshair": True,
@@ -72,21 +70,18 @@ class ESPOverlay(QWidget):
         self.menu_keys = list(self.features.keys())
         self.selected_index = 0
         
-        self.enemy_boxes = [] # Сюда будем складывать координаты врагов для отрисовки
+        self.enemy_boxes = []
 
-        # Состояние кнопок (анти-спам)
         self.ins_pressed = False
         self.f12_pressed = False
         self.up_pressed = False
         self.down_pressed = False
         self.right_pressed = False
 
-        # Подключение к CS2
         self.pm = None
         self.client = None
         self.hook_game()
 
-        # Главный цикл (60 раз в секунду)
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_state)
         self.timer.start(16)
@@ -102,7 +97,7 @@ class ESPOverlay(QWidget):
             self.pm = None
 
     def update_state(self):
-        # 1. ОБРАБОТКА КЛАВИАТУРЫ
+        # 1. ОБРАБОТКА МЕНЮ
         if user32.GetAsyncKeyState(VK_INSERT) & 0x8000:
             if not self.ins_pressed:
                 self.show_menu = not self.show_menu
@@ -111,6 +106,7 @@ class ESPOverlay(QWidget):
 
         if user32.GetAsyncKeyState(VK_F12) & 0x8000:
             if not self.f12_pressed:
+                print("[PenguinAI] Unloading module...")
                 QApplication.quit()
         
         if self.show_menu:
@@ -134,10 +130,9 @@ class ESPOverlay(QWidget):
                     self.right_pressed = True
             else: self.right_pressed = False
 
-        # 2. ЧТЕНИЕ ПАМЯТИ И ПОИСК ВРАГОВ (ESP)
+        # 2. ESP ЛОГИКА
         self.enemy_boxes.clear()
         
-        # Если ESP включен, но игра не найдена - пробуем подключиться снова
         if self.features["ESP Box"] and not self.pm:
             self.hook_game()
 
@@ -161,42 +156,39 @@ class ESPOverlay(QWidget):
                         hp = self.pm.read_int(pawn + m_iHealth)
                         team = self.pm.read_int(pawn + m_iTeamNum)
                         
-                        if 0 < hp <= 100 and team != lt: # Живой враг
-                            pos = self.pm.read_vec3(pawn + m_vOldOrigin)
-                            screen = world_to_screen(vm, pos, self.sw, self.sh)
+                        if 0 < hp <= 100 and team != lt:
+                            # ИСПРАВЛЕНИЕ: Читаем 3 координаты отдельно, так как read_vec3 не существует
+                            pos_x = self.pm.read_float(pawn + m_vOldOrigin)
+                            pos_y = self.pm.read_float(pawn + m_vOldOrigin + 4)
+                            pos_z = self.pm.read_float(pawn + m_vOldOrigin + 8)
+                            
+                            screen = world_to_screen(vm, pos_x, pos_y, pos_z, self.sw, self.sh)
                             
                             if screen:
-                                # Сохраняем координаты X, Y и примерный размер коробки (Ширина 30, Высота 60)
-                                self.enemy_boxes.append((screen[0], screen[1], 30, 60))
+                                self.enemy_boxes.append((screen[0], screen[1], 35, 70))
             except Exception as e:
-                # Если игра закрылась или оффсеты устарели
+                print(f"[ERROR ESP] {e}") # Теперь мы увидим ошибку, если она будет!
                 self.pm = None
 
-        # Даем команду перерисовать экран с новыми данными
         self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # --- РИСУЕМ ESP BOXES ---
         if self.features["ESP Box"]:
-            # Зеленая обводка толщиной 2 пикселя
             painter.setPen(QPen(QColor("#00DF64"), 2))
-            painter.setBrush(Qt.BrushStyle.NoBrush) # Квадрат прозрачный внутри
+            painter.setBrush(Qt.BrushStyle.NoBrush)
             
             for x, y, w, h in self.enemy_boxes:
-                # x, y - это координаты ног модели. Рисуем коробку вверх.
                 painter.drawRect(x - (w//2), y - h, w, h)
 
-        # --- РИСУЕМ КРОССХАЙР ---
         if self.features["Crosshair"]:
             cx, cy = self.sw // 2, self.sh // 2
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor("#00DF64"))
             painter.drawEllipse(cx - 3, cy - 3, 6, 6)
 
-        # --- РИСУЕМ МЕНЮ ---
         if self.show_menu:
             menu_x, menu_y = 50, 50 
             
